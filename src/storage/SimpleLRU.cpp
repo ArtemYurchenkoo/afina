@@ -101,6 +101,7 @@ void SimpleLRU::addNode(const std::string& key, const std::string& value){
 }
 
 void SimpleLRU::changeValue(lru_node& node, const std::string& value){
+    moveToTail(node);
     std::size_t diff_in_size  = 0;
     if (node.value.size() > value.size()){
         diff_in_size = node.value.size() - value.size();
@@ -113,7 +114,6 @@ void SimpleLRU::changeValue(lru_node& node, const std::string& value){
         _cur_available -= diff_in_size;
     }
     node.value = value;
-    moveToTail(node);
 }
 
 void SimpleLRU::moveToTail(lru_node& node){
