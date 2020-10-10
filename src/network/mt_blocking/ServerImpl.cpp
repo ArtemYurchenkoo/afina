@@ -81,10 +81,6 @@ void ServerImpl::Start(uint16_t port, uint32_t n_accept, uint32_t n_workers) {
 void ServerImpl::Stop() {
     running.store(false);
     shutdown(_server_socket, SHUT_RDWR);
-    std::unique_lock<std::mutex> lock(_m);
-    for (auto client : _current_client_sockets){
-        shutdown(client, SHUT_RD);
-    }
 }
 
 // See Server.h
@@ -105,7 +101,7 @@ void ServerImpl::OnRun() {
         _logger->debug("waiting for connection...");
 
         // The call to accept() blocks until the incoming connection arrives
-        int client_socket;
+        int client_socket = 0;
         struct sockaddr client_addr;
         socklen_t client_addr_len = sizeof(client_addr);
         if ((client_socket = accept(_server_socket, (struct sockaddr *)&client_addr, &client_addr_len)) == -1) {
@@ -133,15 +129,18 @@ void ServerImpl::OnRun() {
             setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv);
         }
 
-        {
-            std::lock_guard<std::mutex> lock(_m);
-            if (_current_client_sockets.size() < _max_workers){
-                _current_client_sockets.insert(client_socket);
-                std::thread(&ServerImpl::Worker, this, client_socket).detach();
-            } else {
-                close(client_socket);
-            }
+        std::lock_guard<std::mutex> lock(_m);
+        if (_current_client_sockets.size() < _max_workers){
+            _current_client_sockets.insert(client_socket);
+             std::thread(&ServerImpl::Worker, this, client_socket).detach();
+        } else {
+            close(client_socket);
         }
+    }
+
+    std::unique_lock<std::mutex> lock(_m);
+    for (auto client : _current_client_sockets){
+        shutdown(client, SHUT_RD);
     }
 
     // Cleanup on exit...
@@ -154,13 +153,13 @@ void ServerImpl::Worker(int client_socket){
     // - command_to_execute: last command parsed out of stream
     // - arg_remains: how many bytes to read from stream to get command argument
     // - argument_for_command: buffer stores argument
-    std::size_t arg_remains;
+    std::size_t arg_remains = 0;
     Protocol::Parser parser;
     std::string argument_for_command;
     std::unique_ptr<Execute::Command> command_to_execute;
     try {
         int readed_bytes = -1;
-        char client_buffer[4096];
+        char client_buffer[4096] = "";
         while ((readed_bytes = read(client_socket, client_buffer, sizeof(client_buffer))) > 0) {
             _logger->debug("Got {} bytes from socket", readed_bytes);
 
@@ -241,7 +240,7 @@ void ServerImpl::Worker(int client_socket){
     close(client_socket);
     std::unique_lock<std::mutex> lock(_m);
     _current_client_sockets.erase(client_socket);
-    if (_current_client_sockets.empty()){
+    if (_current_client_sockets.empty() && !running.load()){
         _all_workers_done.notify_all();
     }
 }
