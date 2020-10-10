@@ -12,8 +12,6 @@ namespace Backend {
 
 /**
  * # SimpleLRU thread safe version
- *
- *
  */
 class ThreadSafeSimplLRU : public SimpleLRU {
 public:
@@ -22,35 +20,30 @@ public:
 
     // see SimpleLRU.h
     bool Put(const std::string &key, const std::string &value) override {
-        // TODO: sinchronization
         std::unique_lock<std::mutex> lock(_m);
         return SimpleLRU::Put(key, value);
     }
 
     // see SimpleLRU.h
     bool PutIfAbsent(const std::string &key, const std::string &value) override {
-        // TODO: sinchronization
         std::unique_lock<std::mutex> lock(_m);
         return SimpleLRU::PutIfAbsent(key, value);
     }
 
     // see SimpleLRU.h
     bool Set(const std::string &key, const std::string &value) override {
-        // TODO: sinchronization
         std::unique_lock<std::mutex> lock(_m);
         return SimpleLRU::Set(key, value);
     }
 
     // see SimpleLRU.h
     bool Delete(const std::string &key) override {
-        // TODO: sinchronization
         std::unique_lock<std::mutex> lock(_m);
         return SimpleLRU::Delete(key);
     }
 
     // see SimpleLRU.h
     bool Get(const std::string &key, std::string &value) override {
-        // TODO: sinchronization
         std::unique_lock<std::mutex> lock(_m);
         return SimpleLRU::Get(key, value);
     }
