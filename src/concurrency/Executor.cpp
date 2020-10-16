@@ -37,32 +37,38 @@ void Executor::Stop(bool await){
 
 void Executor::perform(){
     auto begin = std::chrono::steady_clock::now();
+    bool running = false;
     while (state == State::kRun){
-        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin);
         std::unique_lock<std::mutex> lock(mutex);
+        if (running){
+            --_cur_running;
+            begin = std::chrono::steady_clock::now();
+            running = false;
+        }
+        while (tasks.empty() && std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count() < _idle_time){
+            empty_condition.wait(lock);
+        }
+        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin);
         if (elapsed_ms.count() >= _idle_time && _existing_threads > _low_watermark){
             break;
         }
         if (tasks.empty()){
-            empty_condition.wait(lock);
-        } else {
-            auto task(std::move(tasks.front()));
-            tasks.pop();
-            ++_cur_running;
-            lock.unlock();
-            task();
-            begin = std::chrono::steady_clock::now();
-            lock.lock();
-            --_cur_running;
+            continue;
         }
+        auto task(std::move(tasks.front()));
+        tasks.pop();
+        ++_cur_running;
+        running = true;
+        lock.unlock();
+        task();
     }
     std::unique_lock<std::mutex> lock(mutex);
     --_existing_threads;
     if (!_existing_threads && state == State::kStopping){
         state = State::kStopped;
-        _executor_stop.notify_one();
-    }
+        _executor_stop.notify_all();
+    } 
 }
 
-}
+} // namespace Concurrency
 } // namespace Afina

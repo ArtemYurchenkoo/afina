@@ -131,7 +131,7 @@ void ServerImpl::OnRun() {
         }
 
         std::lock_guard<std::mutex> lock(_m);
-        if (_current_client_sockets.size() < _max_workers){
+        if (_current_client_sockets.size() < _max_workers && running){
             _current_client_sockets.insert(client_socket);
             if (!thread_pool.Execute(&ServerImpl::Worker, this, client_socket)){
                 close(client_socket);
@@ -142,8 +142,8 @@ void ServerImpl::OnRun() {
     }
 
     std::unique_lock<std::mutex> lock(_m);
+    thread_pool.Stop();
     for (auto client : _current_client_sockets){
-        thread_pool.Stop();
         shutdown(client, SHUT_RD);
     }
 

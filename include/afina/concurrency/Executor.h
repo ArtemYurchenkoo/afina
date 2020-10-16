@@ -62,12 +62,11 @@ public:
             std::thread([this](){
                 this->perform();
             }).detach();
-        } // что если поток не успеет заснуть на cond, а мы уже сделаем notify
+        }
 
         // Enqueue new task
         tasks.push(exec);
-        // empty_condition.notify_one();
-        empty_condition.notify_all();
+        empty_condition.notify_one();
         return true;
     }
 
