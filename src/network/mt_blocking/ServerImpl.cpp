@@ -97,7 +97,7 @@ void ServerImpl::Join() {
 
 // See Server.h
 void ServerImpl::OnRun() {
-    Afina::Concurrency::Executor thread_pool;
+    Afina::Concurrency::Executor thread_pool(3, _max_workers);
     while (running.load()) {
         _logger->debug("waiting for connection...");
 
@@ -131,10 +131,11 @@ void ServerImpl::OnRun() {
         }
 
         std::lock_guard<std::mutex> lock(_m);
-        if (_current_client_sockets.size() < _max_workers && running){
+        if (running){
             _current_client_sockets.insert(client_socket);
             if (!thread_pool.Execute(&ServerImpl::Worker, this, client_socket)){
                 close(client_socket);
+                _current_client_sockets.erase(client_socket);
             }
         } else {
             close(client_socket);
