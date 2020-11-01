@@ -88,11 +88,6 @@ void ServerImpl::Stop() {
 void ServerImpl::Join() {
     assert(_thread.joinable());
     _thread.join();
-    close(_server_socket);
-    std::unique_lock<std::mutex> lock(_m);
-    while (!_current_client_sockets.empty()){
-        _all_workers_done.wait(lock);
-    }
 }
 
 // See Server.h
@@ -142,12 +137,14 @@ void ServerImpl::OnRun() {
         }
     }
 
-    std::unique_lock<std::mutex> lock(_m);
-    thread_pool.Stop();
-    for (auto client : _current_client_sockets){
-        shutdown(client, SHUT_RD);
+    close(_server_socket);
+    {
+        std::unique_lock<std::mutex> lock(_m);
+        for (auto client : _current_client_sockets){
+            shutdown(client, SHUT_RD);
+        }
     }
-
+    thread_pool.Stop(true);
     // Cleanup on exit...
     _logger->warn("Network stopped");
 }

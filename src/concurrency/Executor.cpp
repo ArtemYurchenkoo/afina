@@ -28,8 +28,10 @@ void Executor::Stop(bool await){
             state = State::kStopped;
         } else {
             empty_condition.notify_all();
-            while (state != State::kStopped){
-                _executor_stop.wait(lock);
+            if (await){
+                while (state != State::kStopped){
+                    _executor_stop.wait(lock);
+                }
             }
         }
     }
