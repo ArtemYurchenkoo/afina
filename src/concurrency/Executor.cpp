@@ -52,14 +52,23 @@ void Executor::perform(){
                 remaining_time -= std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count();
             }
         }
-        if (timeout && _existing_threads > _low_watermark || tasks.empty()){
-            break;
+        if (tasks.empty()){
+            if (!timeout || timeout && _existing_threads > _low_watermark){
+                    break;
+            }
+            continue;
         }
         auto task(std::move(tasks.front()));
         tasks.pop();
         ++_cur_running;
         lock.unlock();
-        task();
+        try{
+            task();
+        } catch(const std::exception& e){
+            //log error
+        } catch(...){
+            //log error
+        }
         lock.lock();
         --_cur_running;
     }
