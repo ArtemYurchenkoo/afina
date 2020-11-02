@@ -21,7 +21,6 @@
 #include <afina/Storage.h>
 #include <afina/logging/Service.h>
 
-#include "Connection.h"
 #include "Utils.h"
 
 namespace Afina {
@@ -86,7 +85,6 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
 // See Server.h
 void ServerImpl::Stop() {
     _logger->warn("Stop network service");
-
     // Wakeup threads that are sleep on epoll_wait
     if (eventfd_write(_event_fd, 1)) {
         throw std::runtime_error("Failed to wakeup workers");
@@ -97,6 +95,15 @@ void ServerImpl::Stop() {
 void ServerImpl::Join() {
     // Wait for work to be complete
     _work_thread.join();
+}
+
+void ServerImpl::sighdlr(int sig){
+    for (auto conn : _connections){
+        close(conn->_socket);
+        delete conn;
+        _connections.erase(conn);
+    }
+    raise(SIGTERM);
 }
 
 // See ServerImpl.h
@@ -121,6 +128,7 @@ void ServerImpl::OnRun() {
         throw std::runtime_error("Failed to add file descriptor to epoll");
     }
 
+    signal(SIGTERM, sighdlr);
     bool run = true;
     std::array<struct epoll_event, 64> mod_list;
     while (run) {
@@ -164,7 +172,7 @@ void ServerImpl::OnRun() {
 
                 close(pc->_socket);
                 pc->OnClose();
-
+                _connections.erase(pc);
                 delete pc;
             } else if (pc->_event.events != old_mask) {
                 if (epoll_ctl(epoll_descr, EPOLL_CTL_MOD, pc->_socket, &pc->_event)) {
@@ -172,11 +180,16 @@ void ServerImpl::OnRun() {
 
                     close(pc->_socket);
                     pc->OnClose();
-
+                    _connections.erase(pc);
                     delete pc;
                 }
             }
         }
+    }
+    for (auto conn : _connections){
+        close(conn->_socket);
+        delete conn;
+        _connections.erase(conn);
     }
     _logger->warn("Acceptor stopped");
 }
@@ -220,6 +233,7 @@ void ServerImpl::OnNewConnection(int epoll_descr) {
                 delete pc;
             }
         }
+        _connections.emplace(pc);
     }
 }
 

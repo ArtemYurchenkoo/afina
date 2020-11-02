@@ -3,7 +3,9 @@
 
 #include <thread>
 #include <vector>
+#include <set>
 
+#include "Connection.h"
 #include <afina/network/Server.h>
 
 namespace spdlog {
@@ -40,6 +42,7 @@ protected:
     void OnNewConnection(int);
 
 private:
+    static void sighdlr(int sig);
     // logger to use
     std::shared_ptr<spdlog::logger> _logger;
 
@@ -56,6 +59,8 @@ private:
 
     // IO thread
     std::thread _work_thread;
+
+    inline static std::set<Connection*> _connections;
 };
 
 } // namespace STnonblock
