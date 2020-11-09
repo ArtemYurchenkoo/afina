@@ -20,6 +20,7 @@
 #include <afina/Storage.h>
 #include <afina/execute/Command.h>
 #include <afina/logging/Service.h>
+#include <afina/concurrency/Executor.h>
 
 #include "protocol/Parser.h"
 
@@ -87,16 +88,11 @@ void ServerImpl::Stop() {
 void ServerImpl::Join() {
     assert(_thread.joinable());
     _thread.join();
-    close(_server_socket);
-    std::unique_lock<std::mutex> lock(_m);
-    while (!_current_client_sockets.empty()){
-        _all_workers_done.wait(lock);
-    }
-    // _current_client_sockets.clear();
 }
 
 // See Server.h
 void ServerImpl::OnRun() {
+    Afina::Concurrency::Executor thread_pool(3, _max_workers);
     while (running.load()) {
         _logger->debug("waiting for connection...");
 
@@ -130,19 +126,25 @@ void ServerImpl::OnRun() {
         }
 
         std::lock_guard<std::mutex> lock(_m);
-        if (_current_client_sockets.size() < _max_workers){
+        if (running){
             _current_client_sockets.insert(client_socket);
-             std::thread(&ServerImpl::Worker, this, client_socket).detach();
+            if (!thread_pool.Execute(&ServerImpl::Worker, this, client_socket)){
+                close(client_socket);
+                _current_client_sockets.erase(client_socket);
+            }
         } else {
             close(client_socket);
         }
     }
 
-    std::unique_lock<std::mutex> lock(_m);
-    for (auto client : _current_client_sockets){
-        shutdown(client, SHUT_RD);
+    close(_server_socket);
+    {
+        std::unique_lock<std::mutex> lock(_m);
+        for (auto client : _current_client_sockets){
+            shutdown(client, SHUT_RD);
+        }
     }
-
+    thread_pool.Stop(true);
     // Cleanup on exit...
     _logger->warn("Network stopped");
 }
@@ -237,8 +239,8 @@ void ServerImpl::Worker(int client_socket){
         _logger->error("Failed to process connection on descriptor {}: {}", client_socket, ex.what());
     }
 
-    close(client_socket);
     std::unique_lock<std::mutex> lock(_m);
+    close(client_socket);
     _current_client_sockets.erase(client_socket);
     if (_current_client_sockets.empty() && !running.load()){
         _all_workers_done.notify_all();

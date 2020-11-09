@@ -8,6 +8,7 @@
 #include <queue>
 #include <string>
 #include <thread>
+#include <chrono>
 
 namespace Afina {
 namespace Concurrency {
@@ -20,15 +21,16 @@ class Executor {
         // Threadpool is fully operational, tasks could be added and get executed
         kRun,
 
-        // Threadpool is on the way to be shutdown, no ned task could be added, but existing will be
+        // Threadpool is on the way to be shutdown, no new task could be added, but existing will be
         // completed as requested
         kStopping,
 
         // Threadppol is stopped
         kStopped
     };
-
-    Executor(std::string name, int size);
+    
+public:
+    Executor(std::size_t low_watermark = 3, std::size_t high_watermark = 10, std::size_t max_queue_size = 50, int64_t idle_time = 1000);
     ~Executor();
 
     /**
@@ -51,12 +53,19 @@ class Executor {
         auto exec = std::bind(std::forward<F>(func), std::forward<Types>(args)...);
 
         std::unique_lock<std::mutex> lock(this->mutex);
-        if (state != State::kRun) {
+        if (state != State::kRun || tasks.size() >= _max_queue_size) {
             return false;
         }
 
+        if (_cur_running == _existing_threads && _cur_running < _high_watermark){
+            ++_existing_threads;
+            std::thread([this](){
+                this->perform();
+            }).detach();
+        }
+
         // Enqueue new task
-        tasks.push_back(exec);
+        tasks.push(exec);
         empty_condition.notify_one();
         return true;
     }
@@ -71,7 +80,9 @@ private:
     /**
      * Main function that all pool threads are running. It polls internal task queue and execute tasks
      */
-    friend void perform(Executor *executor);
+    // friend void perform(Executor *executor);
+    // friend void perform();
+    void perform();
 
     /**
      * Mutex to protect state below from concurrent modification
@@ -84,19 +95,23 @@ private:
     std::condition_variable empty_condition;
 
     /**
-     * Vector of actual threads that perorm execution
-     */
-    std::vector<std::thread> threads;
-
-    /**
      * Task queue
      */
-    std::deque<std::function<void()>> tasks;
+    std::queue<std::function<void()>> tasks;
 
     /**
      * Flag to stop bg threads
      */
     State state;
+
+    std::size_t _low_watermark;
+    std::size_t _high_watermark;
+    std::size_t _max_queue_size;
+    int64_t _idle_time;
+    std::size_t _cur_running;
+    std::size_t _existing_threads;
+
+    std::condition_variable _executor_stop;
 };
 
 } // namespace Concurrency
