@@ -31,7 +31,10 @@ namespace STnonblock {
 ServerImpl::ServerImpl(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Logging::Service> pl) : Server(ps, pl) {}
 
 // See Server.h
-ServerImpl::~ServerImpl() {}
+ServerImpl::~ServerImpl() {
+    Stop();
+    // Join();
+}
 
 // See Server.h
 void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) {
@@ -63,6 +66,11 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
         throw std::runtime_error("Socket setsockopt() failed: " + std::string(strerror(errno)));
     }
 
+    if (setsockopt(_server_socket, SOL_SOCKET, SO_REUSEADDR, &opts, sizeof(opts)) == -1) {
+        close(_server_socket);
+        throw std::runtime_error("Socket setsockopt() failed: " + std::string(strerror(errno)));
+    }
+
     if (bind(_server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
         close(_server_socket);
         throw std::runtime_error("Socket bind() failed: " + std::string(strerror(errno)));
@@ -85,9 +93,14 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
 // See Server.h
 void ServerImpl::Stop() {
     _logger->warn("Stop network service");
+    shutdown(_server_socket, SHUT_RDWR);
     // Wakeup threads that are sleep on epoll_wait
     if (eventfd_write(_event_fd, 1)) {
         throw std::runtime_error("Failed to wakeup workers");
+    }
+
+    for (auto conn : _connections){
+        shutdown(conn->_socket, SHUT_RD);
     }
 }
 
@@ -95,15 +108,6 @@ void ServerImpl::Stop() {
 void ServerImpl::Join() {
     // Wait for work to be complete
     _work_thread.join();
-}
-
-void ServerImpl::sighdlr(int sig){
-    for (auto conn : _connections){
-        close(conn->_socket);
-        delete conn;
-        _connections.erase(conn);
-    }
-    raise(SIGTERM);
 }
 
 // See ServerImpl.h
@@ -128,7 +132,6 @@ void ServerImpl::OnRun() {
         throw std::runtime_error("Failed to add file descriptor to epoll");
     }
 
-    signal(SIGTERM, sighdlr);
     bool run = true;
     std::array<struct epoll_event, 64> mod_list;
     while (run) {
@@ -186,11 +189,14 @@ void ServerImpl::OnRun() {
             }
         }
     }
+
+    close(_server_socket);
     for (auto conn : _connections){
         close(conn->_socket);
         delete conn;
         _connections.erase(conn);
     }
+    _connections.clear();
     _logger->warn("Acceptor stopped");
 }
 

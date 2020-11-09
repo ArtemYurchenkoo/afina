@@ -1,6 +1,7 @@
 #include "Connection.h"
 
 #include <unistd.h>
+#include <sys/uio.h>
 
 namespace Afina {
 namespace Network {
@@ -119,25 +120,28 @@ void Connection::DoWrite() {
     }
     _pLogger->debug("Connection writing on socket {}", _socket);
 
-    int ret = 1;
-    auto it = output.begin();
-    do {
-        std::string qhead = *it;
-        ret = write(_socket, &qhead[0] + _head_offset, qhead.size() - _head_offset);
-        if (ret > 0){
-            _head_offset += ret;
-            if (_head_offset >= it->size()){
-                it++;
-                _head_offset = 0;
-            }
-        }
-    } while (ret > 0 && it != output.end());
-    output.erase(output.begin(), it);
+    iovec out_v[output.size()];
+    for (std::size_t i = 0; i < output.size(); ++i){
+        out_v[i].iov_base = &(output[i][0]);
+        out_v[i].iov_len = output[i].size();
+    }
+    out_v[0].iov_base = static_cast<char*>(out_v[0].iov_base) + _head_offset;
+    out_v[0].iov_len -= _head_offset;
+
+    int ret = writev(_socket, out_v, output.size());
 
     if (-1 == ret && errno != EAGAIN){
         _is_alive = false;
         _pLogger->debug("Failed to write to socket {}", _socket);
     }
+
+    std::size_t i = 0;
+    while (ret >= output[i].size() && i < output.size()){
+        ret -= output[i].size();
+        ++i;
+    }
+    _head_offset = ret;
+    output.erase(output.begin(), output.begin() + i);
 
     if (output.size() < MAX_OUTPUT_QUEUE_SIZE){
         _event.events |= EPOLLIN;
