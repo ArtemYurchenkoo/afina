@@ -33,7 +33,7 @@ ServerImpl::ServerImpl(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Loggi
 // See Server.h
 ServerImpl::~ServerImpl() {
     Stop();
-    // Join();
+    Join();
 }
 
 // See Server.h
@@ -93,7 +93,6 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
 // See Server.h
 void ServerImpl::Stop() {
     _logger->warn("Stop network service");
-    shutdown(_server_socket, SHUT_RDWR);
     // Wakeup threads that are sleep on epoll_wait
     if (eventfd_write(_event_fd, 1)) {
         throw std::runtime_error("Failed to wakeup workers");
@@ -107,7 +106,9 @@ void ServerImpl::Stop() {
 // See Server.h
 void ServerImpl::Join() {
     // Wait for work to be complete
-    _work_thread.join();
+    if (_work_thread.joinable()){
+        _work_thread.join();
+    }
 }
 
 // See ServerImpl.h

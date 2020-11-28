@@ -101,7 +101,11 @@ void Connection::DoRead() {
         }
         if (readed_bytes == 0) {
             _pLogger->debug("Client closed connection on socket {}", _socket);
-            _eof = true;
+            if (!_event.events & EPOLLOUT) {
+                _is_alive = false;
+            } else {
+                _eof = true;
+            }
         } else {
             throw std::runtime_error(std::string(strerror(errno)));
         }
@@ -133,6 +137,7 @@ void Connection::DoWrite() {
     if (-1 == ret && errno != EAGAIN){
         _is_alive = false;
         _pLogger->debug("Failed to write to socket {}", _socket);
+        return;
     }
 
     std::size_t i = 0;
