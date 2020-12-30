@@ -74,6 +74,9 @@ private:
      */
     unblocker_func _unblocker;
 
+    void delete_from_list(context*& list, context*& routine_);
+    void add_to_list(context*& list, context*& routine_);
+
 protected:
     /**
      * Save stack of the current coroutine in the given context
@@ -89,9 +92,10 @@ protected:
 
 public:
     Engine(unblocker_func unblocker = null_unblocker)
-        : StackBottom(0), cur_routine(nullptr), alive(nullptr), _unblocker(unblocker) {}
+        : StackBottom(0), cur_routine(nullptr), alive(nullptr), blocked(nullptr), _unblocker(unblocker) {}
     Engine(Engine &&) = delete;
     Engine(const Engine &) = delete;
+    ~Engine();
 
     /**
      * Gives up current routine execution and let engine to schedule other one. It is not defined when
@@ -110,7 +114,7 @@ public:
      * If routine to pass execution to is not specified (nullptr) then method should behaves like yield. In case
      * if passed routine is the current one method does nothing
      */
-    void sched(void *routine);
+    void sched(void *routine = nullptr);
 
     /**
      * Blocks current routine so that is can't be scheduled anymore
@@ -118,12 +122,12 @@ public:
      *
      * If argument is nullptr then block current coroutine
      */
-    void block(void *coro = nullptr);
+    void block(void *routine_ = nullptr);
 
     /**
      * Put coroutine back to list of alive, so that it could be scheduled later
      */
-    void unblock(void *coro);
+    void unblock(void *routine_);
 
     /**
      * Entry point into the engine. Prepare all internal mechanics and starts given function which is
@@ -144,6 +148,9 @@ public:
         void *pc = run(main, std::forward<Ta>(args)...);
 
         idle_ctx = new context();
+        cur_routine = idle_ctx;
+        idle_ctx->Low = StackBottom;
+        idle_ctx->Hight = StackBottom;
         if (setjmp(idle_ctx->Environment) > 0) {
             if (alive == nullptr) {
                 _unblocker(*this);
@@ -152,21 +159,25 @@ public:
             // Here: correct finish of the coroutine section
             yield();
         } else if (pc != nullptr) {
-            Store(*idle_ctx);
             sched(pc);
         }
 
         // Shutdown runtime
+        delete[] std::get<0>(idle_ctx->Stack);
         delete idle_ctx;
-        this->StackBottom = 0;
+        this->StackBottom = nullptr;
     }
 
+    template <typename... Ta> void* run(void (*func)(Ta...), Ta &&... args){
+        char tmp;
+        return run_impl(&tmp, func, std::forward<Ta>(args)...);
+    }
     /**
      * Register new coroutine. It won't receive control until scheduled explicitely or implicitly. In case of some
      * errors function returns -1
      */
-    template <typename... Ta> void *run(void (*func)(Ta...), Ta &&... args) {
-        if (this->StackBottom == 0) {
+    template <typename... Ta> void *run_impl(char* addr, void (*func)(Ta...), Ta &&... args) {
+        if (this->StackBottom == nullptr) {
             // Engine wasn't initialized yet
             return nullptr;
         }
@@ -177,6 +188,7 @@ public:
         // Store current state right here, i.e just before enter new coroutine, later, once it gets scheduled
         // execution starts here. Note that we have to acquire stack of the current function call to ensure
         // that function parameters will be passed along
+        pc->Hight = addr;
         if (setjmp(pc->Environment) > 0) {
             // Created routine got control in order to start execution. Note that all variables, such as
             // context pointer, arguments and a pointer to the function comes from restored stack
@@ -203,22 +215,23 @@ public:
             // current coroutine finished, and the pointer is not relevant now
             cur_routine = nullptr;
             pc->prev = pc->next = nullptr;
-            delete std::get<0>(pc->Stack);
+            delete[] std::get<0>(pc->Stack);
             delete pc;
 
             // We cannot return here, as this function "returned" once already, so here we must select some other
             // coroutine to run. As current coroutine is completed and can't be scheduled anymore, it is safe to
-            // just give up and ask scheduler code to select someone else, control will never returns to this one
+            // just give up and ask scheduler code to select someone else, control will never return to this one
             Restore(*idle_ctx);
         }
 
-        // setjmp remembers position from which routine could starts execution, but to make it correctly
+        // setjmp remembers position from which routine could start execution, but to make it correctly
         // it is neccessary to save arguments, pointer to body function, pointer to context, e.t.c - i.e
         // save stack.
         Store(*pc);
 
         // Add routine as alive double-linked list
         pc->next = alive;
+        pc->prev = nullptr;
         alive = pc;
         if (pc->next != nullptr) {
             pc->next->prev = pc;
