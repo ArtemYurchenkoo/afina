@@ -164,6 +164,7 @@ public:
             // Here: correct finish of the coroutine section
             yield();
         } else if (pc != nullptr) {
+            Store(*idle_ctx);
             sched(pc);
         }
 

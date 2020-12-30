@@ -73,10 +73,12 @@ void Engine::sched(void *routine_){
     if (coro == cur_routine){
         return;
     }
-    if (setjmp(cur_routine->Environment) > 0){
-        return;
+    if (cur_routine != idle_ctx){
+        if (setjmp(cur_routine->Environment) > 0){
+            return;
+        }
+        Store(*cur_routine);
     }
-    Store(*cur_routine);
     cur_routine = coro;
     Restore(*cur_routine);
 }
