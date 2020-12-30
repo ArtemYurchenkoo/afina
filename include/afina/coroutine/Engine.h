@@ -74,8 +74,11 @@ private:
      */
     unblocker_func _unblocker;
 
+    bool stack_reversed;
+
     void delete_from_list(context*& list, context*& routine_);
     void add_to_list(context*& list, context*& routine_);
+    void set_stack_growth_direction();
 
 protected:
     /**
@@ -92,7 +95,9 @@ protected:
 
 public:
     Engine(unblocker_func unblocker = null_unblocker)
-        : StackBottom(0), cur_routine(nullptr), alive(nullptr), blocked(nullptr), _unblocker(unblocker) {}
+        : StackBottom(0), cur_routine(nullptr), alive(nullptr), blocked(nullptr), _unblocker(unblocker) {
+            set_stack_growth_direction();
+        }
     Engine(Engine &&) = delete;
     Engine(const Engine &) = delete;
     ~Engine();
@@ -189,6 +194,7 @@ public:
         // execution starts here. Note that we have to acquire stack of the current function call to ensure
         // that function parameters will be passed along
         pc->Hight = addr;
+        pc->Low = addr;
         if (setjmp(pc->Environment) > 0) {
             // Created routine got control in order to start execution. Note that all variables, such as
             // context pointer, arguments and a pointer to the function comes from restored stack

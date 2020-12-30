@@ -28,7 +28,11 @@ Engine::~Engine(){
 
 void Engine::Store(context &ctx){
     char tmp;
-    ctx.Low = &tmp;
+    if (stack_reversed){
+        ctx.Hight = &tmp;
+    } else {
+        ctx.Low = &tmp;
+    }
     std::size_t stack_size = ctx.Hight - ctx.Low;
     if (std::get<1>(ctx.Stack) < stack_size || std::get<1>(ctx.Stack) > stack_size * 2){
         delete[] std::get<0>(ctx.Stack);
@@ -40,7 +44,7 @@ void Engine::Store(context &ctx){
 
 void Engine::Restore(context &ctx){
     char tmp;
-    while (&tmp >= ctx.Low){
+    while (&tmp >= ctx.Low && &tmp <= ctx.Hight){
         Restore(ctx);
     }
     memcpy(ctx.Low, std::get<0>(ctx.Stack), ctx.Hight - ctx.Low);
@@ -69,14 +73,12 @@ void Engine::sched(void *routine_){
     if (coro == cur_routine){
         return;
     }
-    if (cur_routine != idle_ctx && cur_routine != coro){
-        if (setjmp(cur_routine->Environment) > 0){
-            return;
-        }
-        Store(*cur_routine);
-        cur_routine = coro;
-        Restore(*cur_routine);
+    if (setjmp(cur_routine->Environment) > 0){
+        return;
     }
+    Store(*cur_routine);
+    cur_routine = coro;
+    Restore(*cur_routine);
 }
 
 void Engine::delete_from_list(context*& list, context*& routine_){
@@ -109,10 +111,10 @@ void Engine::add_to_list(context*& list, context*& routine_){
 }
 
 void Engine::block(void *routine_){
-    if (routine_ == nullptr){
+    if (routine_ == nullptr || cur_routine == routine_){
         delete_from_list(alive, cur_routine);
         add_to_list(blocked, cur_routine);
-        yield();
+        sched(idle_ctx);
     } else {
         context* coro = static_cast<context*>(routine_);
         delete_from_list(alive, coro);
@@ -127,6 +129,12 @@ void Engine::unblock(void *routine_){
     context* coro = static_cast<context*>(routine_);
     delete_from_list(blocked, coro);
     add_to_list(alive, coro);
+}
+
+void Engine::set_stack_growth_direction(){
+    int a;
+    int b;
+    stack_reversed = ((&a - &b) > 0);
 }
 
 } // namespace Coroutine
