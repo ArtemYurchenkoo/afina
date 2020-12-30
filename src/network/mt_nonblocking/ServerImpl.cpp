@@ -35,7 +35,7 @@ ServerImpl::ServerImpl(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Loggi
 // See Server.h
 ServerImpl::~ServerImpl() {
     Stop();
-    //Join();
+    Join();
 }
 
 // See Server.h
@@ -119,9 +119,11 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
 void ServerImpl::Stop() {
     _logger->warn("Stop network service");
     shutdown(_server_socket, SHUT_RDWR);
-
-    for (auto conn: _connections){
-        shutdown(conn->_socket, SHUT_RD);
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        for (auto conn: _connections){
+            shutdown(conn->_socket, SHUT_RD);
+        }
     }
     // Said workers to stop
     for (auto &w : _workers) {
@@ -137,11 +139,20 @@ void ServerImpl::Stop() {
 // See Server.h
 void ServerImpl::Join() {
     for (auto &t : _acceptors) {
-        t.join();
+        if (t.joinable()){
+            t.join();
+        }
     }
 
     for (auto &w : _workers) {
         w.Join();
+    }
+
+    std::lock_guard<std::mutex> lock(_mutex);
+    close(_server_socket);
+    for (auto conn: _connections){
+        close(conn->_socket);
+        delete conn;
     }
 }
 
@@ -233,14 +244,6 @@ void ServerImpl::OnRun() {
         }
     }
     _logger->warn("Acceptor stopped");
-
-    std::lock_guard<std::mutex> lock(_mutex);
-    close(_server_socket);
-    for (auto conn : _connections){
-        close(conn->_socket);
-        delete conn;
-        _connections.erase(conn);
-    }
 }
 
 } // namespace MTnonblock

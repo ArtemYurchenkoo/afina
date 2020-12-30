@@ -9,29 +9,28 @@ namespace MTnonblock {
 
 // See Connection.h
 void Connection::Start() { 
-    std::lock_guard<std::mutex> lock(_mutex);
     _event.events |= EPOLLIN | EPOLLERR | EPOLLHUP | EPOLLRDHUP;
     _pLogger->debug("Connection started on socket {}", _socket);
+    std::atomic_thread_fence(std::memory_order::memory_order_release);
 }
 
 // See Connection.h
 void Connection::OnError() { 
-    std::lock_guard<std::mutex> lock(_mutex);
     _pLogger->error("Error on connection on socket {}", _socket);
-    _is_alive = false;
+    _is_alive.store(false, std::memory_order::memory_order_release);
 }
 
 // See Connection.h
 void Connection::OnClose() { 
     std::lock_guard<std::mutex> lock(_mutex);
     _pLogger->debug("Connection closed on socket {}", _socket);
-    _is_alive = false;
+    _is_alive.store(false, std::memory_order::memory_order_release);
 }
 
 // See Connection.h
 void Connection::DoRead() { 
-    std::lock_guard<std::mutex> lock(_mutex);
     _pLogger->debug("Connection reading on socket {}", _socket);
+    std::atomic_thread_fence(std::memory_order::memory_order_acquire);
     
     try {
         int readed_bytes = -1;
@@ -105,20 +104,21 @@ void Connection::DoRead() {
         }
         if (readed_bytes == 0) {
             _pLogger->debug("Client closed connection on socket {}", _socket);
-            _eof = true;
+            _eof.store(true, std::memory_order::memory_order_relaxed);
         } else if (errno != EAGAIN){
             throw std::runtime_error(std::string(strerror(errno)));
         }
     } catch (std::runtime_error &ex) {
         _pLogger->error("Failed to process connection on descriptor {}: {}", _socket, ex.what());
-        _is_alive = false;
+        _is_alive.store(false, std::memory_order::memory_order_relaxed);
     }
+    std::atomic_thread_fence(std::memory_order::memory_order_release);
 }
 
 // See Connection.h
 void Connection::DoWrite() { 
-    std::lock_guard<std::mutex> lock(_mutex);
-    if  (!_is_alive){
+    std::atomic_thread_fence(std::memory_order::memory_order_acquire);
+    if  (!_is_alive.load(std::memory_order_relaxed)){
         return;
     }
     _pLogger->debug("Connection writing on socket {}", _socket);
@@ -134,8 +134,9 @@ void Connection::DoWrite() {
     int ret = writev(_socket, out_v, output.size());
 
     if (-1 == ret && errno != EAGAIN){
-        _is_alive = false;
+        _is_alive.store(false, std::memory_order::memory_order_release);
         _pLogger->debug("Failed to write to socket {}", _socket);
+        return;
     }
 
     std::size_t i = 0;
@@ -150,11 +151,12 @@ void Connection::DoWrite() {
         _event.events |= EPOLLIN;
     }
     if (output.empty()){
-        if (_eof){
-            _is_alive = false;
+        if (_eof.load(std::memory_order::memory_order_relaxed)){
+            _is_alive.store(false, std::memory_order::memory_order_relaxed);
         }
         _event.events &= ~EPOLLOUT;
     }
+    std::atomic_thread_fence(std::memory_order::memory_order_release);
 }
 
 } // namespace MTnonblock

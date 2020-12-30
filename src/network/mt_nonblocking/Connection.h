@@ -9,8 +9,10 @@
 #include <afina/execute/Command.h>
 #include <spdlog/logger.h>
 #include <mutex>
+#include <atomic>
 
 #define MAX_OUTPUT_QUEUE_SIZE 100
+
 namespace Afina {
 namespace Network {
 namespace MTnonblock {
@@ -22,17 +24,16 @@ public:
         std::unique_lock<std::mutex> lock(_mutex);
         std::memset(&_event, 0, sizeof(struct epoll_event));
         _event.data.ptr = this;
-        _is_alive = true;
+        _is_alive.store(true, std::memory_order::memory_order_relaxed);
         _arg_remains = 0;
         _buff_offset = 0;
         _head_offset = 0;
-        _eof = false;
+        _eof.store(false, std::memory_order::memory_order_release);
         std::memset(_read_buffer, 0, 4096);
     }
 
-    inline bool isAlive() {
-        std::lock_guard<std::mutex> lock(_mutex);
-        return _is_alive;
+    inline bool isAlive() const {
+        return _is_alive.load(std::memory_order_acquire);
     }
 
     void Start();
@@ -48,8 +49,8 @@ private:
     friend class Worker;
 
     int _socket;
-    bool _is_alive;
-    bool _eof;
+    std::atomic<bool> _is_alive;
+    std::atomic<bool> _eof;
     struct epoll_event _event;
     std::vector<std::string> output;
     std::size_t _head_offset;
