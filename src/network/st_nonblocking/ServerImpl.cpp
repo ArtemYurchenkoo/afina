@@ -239,6 +239,9 @@ void ServerImpl::OnNewConnection(int epoll_descr) {
                 pc->OnError();
                 delete pc;
             }
+        } else {
+            close(pc->_socket);
+            delete pc;
         }
         _connections.emplace(pc);
     }
