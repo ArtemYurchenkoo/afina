@@ -118,7 +118,6 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
 // See Server.h
 void ServerImpl::Stop() {
     _logger->warn("Stop network service");
-    shutdown(_server_socket, SHUT_RDWR);
     {
         std::lock_guard<std::mutex> lock(_mutex);
         for (auto conn: _connections){
@@ -143,10 +142,12 @@ void ServerImpl::Join() {
             t.join();
         }
     }
+    _acceptors.clear();
 
     for (auto &w : _workers) {
         w.Join();
     }
+    _workers.clear();
 
     std::lock_guard<std::mutex> lock(_mutex);
     close(_server_socket);

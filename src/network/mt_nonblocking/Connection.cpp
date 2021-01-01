@@ -11,7 +11,6 @@ namespace MTnonblock {
 void Connection::Start() { 
     _event.events |= EPOLLIN | EPOLLERR | EPOLLHUP | EPOLLRDHUP;
     _pLogger->debug("Connection started on socket {}", _socket);
-    std::atomic_thread_fence(std::memory_order::memory_order_release);
 }
 
 // See Connection.h
@@ -22,7 +21,6 @@ void Connection::OnError() {
 
 // See Connection.h
 void Connection::OnClose() { 
-    std::lock_guard<std::mutex> lock(_mutex);
     _pLogger->debug("Connection closed on socket {}", _socket);
     _is_alive.store(false, std::memory_order::memory_order_release);
 }
